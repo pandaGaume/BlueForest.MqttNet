@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netcoreapp3.1</TargetFramework>
+    <RootNamespace>BlueForest.Messaging.MqttNet.Dataflow</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\BlueForest.MqttNet\BlueForest.MqttNet.csproj" />
+  </ItemGroup>
+
+</Project>
