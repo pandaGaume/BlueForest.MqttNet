@@ -14,48 +14,48 @@ using System.Threading.Tasks.Dataflow;
 
 namespace BlueForest.MqttNet.Dataflow
 {
-    public class MqttSource<T> : IWithBroker, ISourceBlock<T>, IDisposable
+    public class MqttSourceBlock<T> : IWithBroker, ISourceBlock<T>, IDisposable
     {
-        MqttSourceOptions _options;
+        IMqttSourceBlockOptions<T> _options;
         ITargetBlock<MqttApplicationMessageReceivedEventArgs> _target;
         IPropagatorBlock<MqttApplicationMessageReceivedEventArgs, T> _decoder;
         ISourceBlock<T> _source;
         string[][] _subscribed;
         private bool _disposed = false;
-        IMqttSourceCodec<T> _codec;
+        public IManagedMqttClient Broker => _options.ManagedClient;
 
-        public IManagedMqttClient Broker => _options?.MqttClient;
-        public IMqttSourceCodec<T> Codec => _codec;
-
-        public MqttSource(IMqttSourceCodec<T> codec)
-        {
-            _codec = codec ?? throw new ArgumentNullException(nameof(codec));
-        }
-
-        public async Task StartAsync(MqttSourceOptions options, CancellationToken cancellationToken = default)
+        public MqttSourceBlock(IMqttSourceBlockOptions<T> options)
         {
             _options = options ?? throw new ArgumentNullException(nameof(options));
+            if (options.Codec == null) throw new ArgumentNullException(nameof(options.Codec));
+            if (options.ManagedClient== null ) throw new ArgumentNullException(nameof(options.ManagedClient));
+            // make sure our complete call gets propagated throughout the whole pipeline
+            var linkOptions = new DataflowLinkOptions { PropagateCompletion = true };
+
+            var inputBuffer = new BufferBlock<MqttApplicationMessageReceivedEventArgs>(_options.SourceOptions ?? new DataflowBlockOptions());
+            var decoder = new TransformBlock<MqttApplicationMessageReceivedEventArgs, T>(DecodeAsync, _options.DecoderOptions ?? new ExecutionDataflowBlockOptions());
+            var outputBuffer = new BufferBlock<T>(_options.TargetOptions ?? new DataflowBlockOptions());
+
+            // apply Filter (default is filtering topics if enabled in options.FilteringTopic)
+            inputBuffer.LinkTo(decoder, linkOptions, Filter);
+            // add null target for filtered values
+            inputBuffer.LinkTo(DataflowBlock.NullTarget<MqttApplicationMessageReceivedEventArgs>());
+            // filter default value
+            decoder.LinkTo(outputBuffer, linkOptions, m => !EqualityComparer<T>.Default.Equals(m, default(T)));
+            // add null target for filtered values
+            decoder.LinkTo(DataflowBlock.NullTarget<T>());
+
+            _target = inputBuffer;
+            _decoder = decoder;
+            _source = outputBuffer;
+        }
+
+        public async Task StartAsync(CancellationToken cancellationToken = default)
+        {
             var client = Broker;
             if (client != null)
             {
-                // make sure our complete call gets propagated throughout the whole pipeline
-                var linkOptions = new DataflowLinkOptions { PropagateCompletion = true };
-
-                var inputBuffer = new BufferBlock<MqttApplicationMessageReceivedEventArgs>(_options.SourceOptions ?? new DataflowBlockOptions());
-                var decoder = new TransformBlock<MqttApplicationMessageReceivedEventArgs, T>(DecodeAsync, _options.EncoderOptions ?? new ExecutionDataflowBlockOptions());
-                var outputBuffer = new BufferBlock<T>(_options.TargetOptions ?? new DataflowBlockOptions());
-
-                inputBuffer.LinkTo(decoder, linkOptions, Filter);
-                inputBuffer.LinkTo(DataflowBlock.NullTarget<MqttApplicationMessageReceivedEventArgs>());
-                decoder.LinkTo(outputBuffer, linkOptions, m => !EqualityComparer<T>.Default.Equals(m, default(T)));
-                decoder.LinkTo(DataflowBlock.NullTarget<T>());
-
-                _target = inputBuffer;
-                _decoder = decoder;
-                _source = outputBuffer;
-
                 client.OnConnected += OnConnectedAsync;
-
                 await client.StartAsync(cancellationToken);
             }
         }
@@ -114,14 +114,15 @@ namespace BlueForest.MqttNet.Dataflow
                 client.OnDisconnected += OnDisconnectedAsync;
                 client.OnMessage += OnMessageAsync;
                 var optionsBuilder = new MqttClientSubscribeOptionsBuilder();
-                foreach (var tf in _options.Topics)
+                var topics = _options.Topics;
+                foreach (var tf in topics)
                 {
                     optionsBuilder.WithTopicFilter(tf);
                 }
                 try
                 {
                     var subscribeResult = await client.Client.SubscribeAsync(optionsBuilder.Build(), CancellationToken.None);
-                    _subscribed = _options.Topics.Select(f => f.Topic.Split(MqttProtocol.TOPIC_SEPARATOR)).ToArray();
+                    _subscribed = topics.Select(f => f.Topic.Split(MqttProtocol.TOPIC_SEPARATOR)).ToArray();
                     foreach (var r in subscribeResult.Items)
                     {
                         if (r.ResultCode <= MqttClientSubscribeResultCode.GrantedQoS2)
@@ -132,7 +133,7 @@ namespace BlueForest.MqttNet.Dataflow
                         }
                     }
                 }
-                catch
+                catch(Exception e)
                 {
                 }
             }
@@ -152,7 +153,7 @@ namespace BlueForest.MqttNet.Dataflow
                     {
                         if (i != 0)
                         {
-                            // bubble up the topic up.
+                            // bubble up the topic up to speed up the search
                             var tmp = _subscribed[i - 1];
                             _subscribed[i - 1] = _subscribed[i];
                             _subscribed[i] = tmp;
@@ -198,7 +199,7 @@ namespace BlueForest.MqttNet.Dataflow
         {
             try
             {
-               return await _codec.GetMessageAsync(GetPayload(args));
+               return await _options.Codec.GetMessageAsync(GetPayload(args));
             }
             catch
             {

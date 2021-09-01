@@ -7,5 +7,6 @@
         public bool? IsSecure { get; set; }
         public string ClientId { get; set; }
         public BrokerClientCredential Credentials { get; set; }
+        public TlsOptions Tls { get; set; }
     }
 }

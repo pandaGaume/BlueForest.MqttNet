@@ -75,7 +75,7 @@ namespace BlueForest.MqttNet
             try
             {
                 await _runLock.WaitAsync(cancellationToken);
-                 if (_stoppedSource != null)
+                if (_stoppedSource != null)
                 {
                     return this;
                 }
@@ -166,7 +166,7 @@ namespace BlueForest.MqttNet
                                     var o = settings.ClientOptions.BuildMqttClientOptions();
                                     _lastConnectionResult = await this._client.ConnectAsync(o, cts.Token);
                                 }
-                                catch
+                                catch(Exception e)
                                 {
                                 }
 

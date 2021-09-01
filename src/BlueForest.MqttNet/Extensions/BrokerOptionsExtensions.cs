@@ -1,4 +1,5 @@
 ﻿using MQTTnet.Client.Options;
+using System.Security.Authentication;
 
 namespace BlueForest.MqttNet
 {
@@ -12,8 +13,18 @@ namespace BlueForest.MqttNet
                 .WithTcpServer(settings.Host, settings.Port)
                 .WithCleanSession();
 
-            optionsBuilder = settings.Credentials != null && settings.Credentials.Username != null && settings.Credentials.Password != null ? optionsBuilder.WithCredentials(settings.Credentials.Username, settings.Credentials.Password) : optionsBuilder;
-            var options = (settings.IsSecure ?? false ? optionsBuilder.WithTls() : optionsBuilder).Build();
+            optionsBuilder = (settings?.Credentials.Username != null && settings?.Credentials.Password != null) ? optionsBuilder.WithCredentials(settings.Credentials.Username, settings.Credentials.Password) : optionsBuilder;
+            if (settings.IsSecure ?? false)
+            {
+                MqttClientOptionsBuilderTlsParameters tls = new MqttClientOptionsBuilderTlsParameters()
+                {
+                    UseTls = true,
+                    SslProtocol = settings.Tls?.SslProtocol ?? TlsOptions.DefaultProtocol
+                };
+                optionsBuilder = optionsBuilder.WithTls(tls) ;
+            }
+            var options = optionsBuilder.Build();
+
             return options;
         }
     }

@@ -23,26 +23,18 @@ namespace BlueForest.MqttNet
             return this;
         }
 
-        public BrokerOptionsBuilder WithCredentials(string username, string password = null)
+        public BrokerOptionsBuilder WithCredentials(string username, string password = null) => WithCredentials(new BrokerClientCredential
         {
-            byte[] passwordBuffer = null;
+            Username = username,
+            Password = password
+        });
 
-            if (password != null)
-            {
-                passwordBuffer = Encoding.UTF8.GetBytes(password);
-            }
-
-            return WithCredentials(username, passwordBuffer);
-        }
-
-        public BrokerOptionsBuilder WithCredentials(string username, byte[] password = null)
+        public BrokerOptionsBuilder WithCredentials(string username, byte[] password = null)=> WithCredentials(new BrokerClientCredential
         {
-            return WithCredentials(new BrokerClientCredential
-            {
-                Username = username,
-                Password = password
-            });
-        }
+            Username = username,
+            Password = Encoding.UTF8.GetString(password)
+        });
+        
 
         public BrokerOptionsBuilder WithCredentials(BrokerClientCredential credentials)
         {
