@@ -14,12 +14,12 @@ using System.Threading.Tasks.Dataflow;
 
 namespace BlueForest.MqttNet.Dataflow
 {
-    public class MqttSourceBlock<T> : IWithBroker, ISourceBlock<T>, IDisposable
+    public class MqttSourceBlock<T> : IWithBroker, ISourceBlock<IEnumerable<T>>, IDisposable
     {
         IMqttSourceBlockOptions<T> _options;
         ITargetBlock<MqttApplicationMessageReceivedEventArgs> _target;
-        IPropagatorBlock<MqttApplicationMessageReceivedEventArgs, T> _decoder;
-        ISourceBlock<T> _source;
+        IPropagatorBlock<MqttApplicationMessageReceivedEventArgs, IEnumerable<T>> _decoder;
+        ISourceBlock<IEnumerable<T>> _source;
         string[][] _subscribed;
         private bool _disposed = false;
         public IManagedMqttClient Broker => _options.ManagedClient;
@@ -33,17 +33,15 @@ namespace BlueForest.MqttNet.Dataflow
             var linkOptions = new DataflowLinkOptions { PropagateCompletion = true };
 
             var inputBuffer = new BufferBlock<MqttApplicationMessageReceivedEventArgs>(_options.SourceOptions ?? new DataflowBlockOptions());
-            var decoder = new TransformBlock<MqttApplicationMessageReceivedEventArgs, T>(DecodeAsync, _options.DecoderOptions ?? new ExecutionDataflowBlockOptions());
-            var outputBuffer = new BufferBlock<T>(_options.TargetOptions ?? new DataflowBlockOptions());
+            var decoder = new TransformBlock<MqttApplicationMessageReceivedEventArgs, IEnumerable<T>>(DecodeAsync, _options.DecoderOptions ?? new ExecutionDataflowBlockOptions());
+            var outputBuffer = new BufferBlock<IEnumerable<T>>(_options.TargetOptions ?? new DataflowBlockOptions());
 
             // apply Filter (default is filtering topics if enabled in options.FilteringTopic)
             inputBuffer.LinkTo(decoder, linkOptions, Filter);
             // add null target for filtered values
             inputBuffer.LinkTo(DataflowBlock.NullTarget<MqttApplicationMessageReceivedEventArgs>());
             // filter default value
-            decoder.LinkTo(outputBuffer, linkOptions, m => !EqualityComparer<T>.Default.Equals(m, default(T)));
-            // add null target for filtered values
-            decoder.LinkTo(DataflowBlock.NullTarget<T>());
+            decoder.LinkTo(outputBuffer, linkOptions);
 
             _target = inputBuffer;
             _decoder = decoder;
@@ -195,7 +193,7 @@ namespace BlueForest.MqttNet.Dataflow
             }
             return m;
         }
-        protected async virtual Task<T> DecodeAsync(MqttApplicationMessageReceivedEventArgs args)
+        protected async virtual Task<IEnumerable<T>> DecodeAsync(MqttApplicationMessageReceivedEventArgs args)
         {
             try
             {
@@ -203,7 +201,7 @@ namespace BlueForest.MqttNet.Dataflow
             }
             catch
             {
-                return default(T);
+                return Enumerable.Empty<T>();
             }
         }
         protected virtual void Dispose(bool disposing)
@@ -223,10 +221,10 @@ namespace BlueForest.MqttNet.Dataflow
         }
         #region ISourceBlock<T>
         public Task Completion => _source.Completion;
-        public T ConsumeMessage(DataflowMessageHeader messageHeader, ITargetBlock<T> target, out bool messageConsumed) => _source.ConsumeMessage(messageHeader, target, out messageConsumed);
-        public IDisposable LinkTo(ITargetBlock<T> target, DataflowLinkOptions linkOptions) => _source.LinkTo(target, linkOptions);
-        public void ReleaseReservation(DataflowMessageHeader messageHeader, ITargetBlock<T> target) => _source.ReleaseReservation(messageHeader, target);
-        public bool ReserveMessage(DataflowMessageHeader messageHeader, ITargetBlock<T> target) => _source.ReserveMessage(messageHeader, target);
+        public IEnumerable<T> ConsumeMessage(DataflowMessageHeader messageHeader, ITargetBlock<IEnumerable<T>> target, out bool messageConsumed) => _source.ConsumeMessage(messageHeader, target, out messageConsumed);
+        public IDisposable LinkTo(ITargetBlock<IEnumerable<T>> target, DataflowLinkOptions linkOptions) => _source.LinkTo(target, linkOptions);
+        public void ReleaseReservation(DataflowMessageHeader messageHeader, ITargetBlock<IEnumerable<T>> target) => _source.ReleaseReservation(messageHeader, target);
+        public bool ReserveMessage(DataflowMessageHeader messageHeader, ITargetBlock<IEnumerable<T>> target) => _source.ReserveMessage(messageHeader, target);
         public void Complete() => _source.Complete();
         public void Fault(Exception exception) => _source.Fault(exception);
         #endregion

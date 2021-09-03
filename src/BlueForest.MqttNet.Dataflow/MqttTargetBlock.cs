@@ -10,13 +10,13 @@ using System.Threading.Tasks.Dataflow;
 namespace BlueForest.MqttNet.Dataflow
 {
     using PAYLOAD = IEnumerable<MqttApplicationMessage>;
-    public class MqttTargetBlock<T> : IWithBroker, ITargetBlock<T>, IDisposable
+    public class MqttTargetBlock<T> : IWithBroker, ITargetBlock<IEnumerable<T>>, IDisposable
     {
         public static TimeSpan PublishRetryMaxDelayDefault = TimeSpan.FromSeconds(30);
 
         IMqttTargetBlockOptions<T> _options;
-        ITargetBlock<T> _target;
-        IPropagatorBlock<T, PAYLOAD> _encoder;
+        ITargetBlock<IEnumerable<T>> _target;
+        IPropagatorBlock<IEnumerable<T>, PAYLOAD> _encoder;
         ITargetBlock<PAYLOAD> _publisher;
         private bool _disposed = false;
 
@@ -31,8 +31,8 @@ namespace BlueForest.MqttNet.Dataflow
             // make sure our complete call gets propagated throughout the whole pipeline
             var linkOptions = new DataflowLinkOptions { PropagateCompletion = true };
 
-            var inputBuffer = new BufferBlock<T>(_options.InputOptions ?? new DataflowBlockOptions());
-            var encoder = new TransformBlock<T, PAYLOAD>(EncodeAsync, _options.EncoderOptions ?? new ExecutionDataflowBlockOptions());
+            var inputBuffer = new BufferBlock<IEnumerable<T>>(_options.InputOptions ?? new DataflowBlockOptions());
+            var encoder = new TransformBlock<IEnumerable<T>, PAYLOAD>(EncodeAsync, _options.EncoderOptions ?? new ExecutionDataflowBlockOptions());
             var publisher = new ActionBlock<PAYLOAD>(PublishAsync,_options.PublishOptions ?? new ExecutionDataflowBlockOptions());
 
             inputBuffer.LinkTo(encoder, linkOptions);
@@ -43,15 +43,18 @@ namespace BlueForest.MqttNet.Dataflow
             _publisher = publisher;
         }
 
-        protected async virtual Task<PAYLOAD> EncodeAsync(T args)
+        protected async virtual Task<PAYLOAD> EncodeAsync(IEnumerable<T> args)
         {
             List<MqttApplicationMessage> l = new List<MqttApplicationMessage>(_options.Topics.Count);
-            var payload = await _options.Codec.GetPayloadAsync(args);
-            foreach(var t in _options.Topics)
+            foreach (var m in args)
             {
-                var newTopic = _options.Codec.GetTopic(t.Topic, args);
-                var builder = new MqttApplicationMessageBuilder().WithPayload(payload).WithTopic(newTopic).WithQualityOfServiceLevel(t.QualityOfServiceLevel);
-                l.Add(builder.Build());
+                var payload = await _options.Codec.GetPayloadAsync(m);
+                foreach (var t in _options.Topics)
+                {
+                    var newTopic = _options.Codec.GetTopic(t.Topic, m);
+                    var builder = new MqttApplicationMessageBuilder().WithPayload(payload).WithTopic(newTopic).WithQualityOfServiceLevel(t.QualityOfServiceLevel);
+                    l.Add(builder.Build());
+                }
             }
             return l;
         }
@@ -114,7 +117,7 @@ namespace BlueForest.MqttNet.Dataflow
         #endregion
         #region ITargetBlock
         public Task Completion => _target.Completion;
-        public DataflowMessageStatus OfferMessage(DataflowMessageHeader messageHeader, T messageValue, ISourceBlock<T> source, bool consumeToAccept) 
+        public DataflowMessageStatus OfferMessage(DataflowMessageHeader messageHeader, IEnumerable<T> messageValue, ISourceBlock<IEnumerable<T>> source, bool consumeToAccept) 
         {
             return _options.ManagedClient.IsConnected() ? _target.OfferMessage(messageHeader, messageValue, source, consumeToAccept) : DataflowMessageStatus.Declined;
         }
